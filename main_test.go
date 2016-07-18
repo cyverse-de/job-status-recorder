@@ -1,17 +1,17 @@
 package main
 
 import (
-	"configurate"
 	"database/sql"
 	"encoding/json"
-	"messaging"
-	"model"
 	"net"
 	"os"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/cyverse-de/configurate"
+	"github.com/cyverse-de/messaging"
+	"github.com/cyverse-de/model"
 	"github.com/olebedev/config"
 	"github.com/streadway/amqp"
 )
