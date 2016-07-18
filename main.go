@@ -7,17 +7,17 @@
 package main
 
 import (
-	"configurate"
 	"database/sql"
 	"encoding/json"
 	"flag"
-	"logcabin"
-	"messaging"
 	"net"
 	"os"
 	"strconv"
-	"version"
 
+	"github.com/cyverse-de/configurate"
+	"github.com/cyverse-de/logcabin"
+	"github.com/cyverse-de/messaging"
+	"github.com/cyverse-de/version"
 	_ "github.com/lib/pq"
 	"github.com/olebedev/config"
 	"github.com/streadway/amqp"
