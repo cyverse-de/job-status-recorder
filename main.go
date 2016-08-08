@@ -9,8 +9,10 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	_ "expvar"
 	"flag"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 
@@ -211,5 +213,12 @@ func main() {
 
 	app.amqpClient.AddConsumer(messaging.JobsExchange, "topic", "job_status_recorder", messaging.UpdatesKey, app.msg)
 	spinner := make(chan int)
+	go func() {
+		sock, err := net.Listen("tcp", "0.0.0.0:60000")
+		if err != nil {
+			logcabin.Error.Fatal(err)
+		}
+		http.Serve(sock, nil)
+	}()
 	<-spinner
 }
