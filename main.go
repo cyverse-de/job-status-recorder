@@ -21,19 +21,19 @@ import (
 	"github.com/cyverse-de/messaging"
 	"github.com/cyverse-de/version"
 	_ "github.com/lib/pq"
-	"github.com/olebedev/config"
+	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
 )
 
 // JobStatusRecorder contains the application state for job-status-recorder
 type JobStatusRecorder struct {
-	cfg        *config.Config
+	cfg        *viper.Viper
 	amqpClient *messaging.Client
 	db         *sql.DB
 }
 
 // New returns a *JobStatusRecorder
-func New(cfg *config.Config) *JobStatusRecorder {
+func New(cfg *viper.Viper) *JobStatusRecorder {
 	return &JobStatusRecorder{
 		cfg: cfg,
 	}
@@ -146,7 +146,7 @@ func main() {
 	var (
 		err         error
 		app         *JobStatusRecorder
-		cfg         *config.Config
+		cfg         *viper.Viper
 		showVersion = flag.Bool("version", false, "Print the version information")
 		cfgPath     = flag.String("config", "", "The path to the config file")
 		dbURI       = flag.String("db", "", "The URI used to connect to the database")
@@ -166,25 +166,19 @@ func main() {
 		logcabin.Error.Fatal("--config must be set.")
 	}
 
-	cfg, err = configurate.Init(*cfgPath)
+	cfg, err = configurate.InitDefaults(*cfgPath, configurate.JobServicesDefaults)
 	if err != nil {
 		logcabin.Error.Fatal(err)
 	}
 
 	if *dbURI == "" {
-		*dbURI, err = cfg.String("db.uri")
-		if err != nil {
-			logcabin.Error.Fatal(err)
-		}
+		*dbURI = cfg.GetString("db.uri")
 	} else {
 		cfg.Set("db.uri", *dbURI)
 	}
 
 	if *amqpURI == "" {
-		*amqpURI, err = cfg.String("amqp.uri")
-		if err != nil {
-			logcabin.Error.Fatal(err)
-		}
+		*amqpURI = cfg.GetString("amqp.uri")
 	} else {
 		cfg.Set("amqp.uri", *amqpURI)
 	}

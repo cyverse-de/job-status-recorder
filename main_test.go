@@ -12,12 +12,12 @@ import (
 	"github.com/cyverse-de/configurate"
 	"github.com/cyverse-de/messaging"
 	"github.com/cyverse-de/model"
-	"github.com/olebedev/config"
+	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
 )
 
 var (
-	cfg *config.Config
+	cfg *viper.Viper
 )
 
 func shouldrun() bool {
@@ -49,7 +49,7 @@ func initdb(t *testing.T) *sql.DB {
 
 func inittests(t *testing.T) {
 	var err error
-	cfg, err = configurate.Init("../test/test_config.yaml")
+	cfg, err = configurate.InitDefaults("../test/test_config.yaml", configurate.JobServicesDefaults)
 	if err != nil {
 		t.Error(err)
 	}
