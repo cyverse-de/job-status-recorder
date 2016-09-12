@@ -1,3 +1,4 @@
+#!groovy
 def repo = "job-status-recorder"
 def dockerUser = "discoenv"
 
