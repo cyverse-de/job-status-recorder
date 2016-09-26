@@ -144,13 +144,15 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 
 func main() {
 	var (
-		err         error
-		app         *JobStatusRecorder
-		cfg         *viper.Viper
-		showVersion = flag.Bool("version", false, "Print the version information")
-		cfgPath     = flag.String("config", "", "The path to the config file")
-		dbURI       = flag.String("db", "", "The URI used to connect to the database")
-		amqpURI     = flag.String("amqp", "", "The URI used to connect to the amqp broker")
+		err          error
+		app          *JobStatusRecorder
+		cfg          *viper.Viper
+		showVersion  = flag.Bool("version", false, "Print the version information")
+		cfgPath      = flag.String("config", "", "The path to the config file")
+		dbURI        = flag.String("db", "", "The URI used to connect to the database")
+		amqpURI      = flag.String("amqp", "", "The URI used to connect to the amqp broker")
+		amqpExchange = flag.String("exchange", "", "The AMQP exchange to connect to")
+		amqpType     = flag.String("exchangetype", "", "The type of the AMQP exchange")
 	)
 
 	flag.Parse()
@@ -183,6 +185,18 @@ func main() {
 		cfg.Set("amqp.uri", *amqpURI)
 	}
 
+	if *amqpExchange == "" {
+		*amqpExchange = cfg.GetString("amqp.exchange.name")
+	} else {
+		cfg.Set("amqp.exchange.name", *amqpExchange)
+	}
+
+	if *amqpType == "" {
+		*amqpType = cfg.GetString("amqp.exchange.type")
+	} else {
+		cfg.Set("amqp.exchange.type", *amqpType)
+	}
+
 	app = New(cfg)
 
 	logcabin.Info.Printf("AMQP broker setting is %s\n", *amqpURI)
@@ -205,7 +219,7 @@ func main() {
 
 	go app.amqpClient.Listen()
 
-	app.amqpClient.AddConsumer(messaging.JobsExchange, "topic", "job_status_recorder", messaging.UpdatesKey, app.msg)
+	app.amqpClient.AddConsumer(*amqpExchange, *amqpType, "job_status_recorder", messaging.UpdatesKey, app.msg)
 	spinner := make(chan int)
 	go func() {
 		sock, err := net.Listen("tcp", "0.0.0.0:60000")
