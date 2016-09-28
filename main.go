@@ -17,9 +17,11 @@ import (
 	"strconv"
 
 	"github.com/cyverse-de/configurate"
+	"github.com/cyverse-de/go-events/ping"
 	"github.com/cyverse-de/logcabin"
 	"github.com/cyverse-de/messaging"
 	"github.com/cyverse-de/version"
+	"github.com/golang/protobuf/proto"
 	_ "github.com/lib/pq"
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
@@ -31,6 +33,9 @@ type JobStatusRecorder struct {
 	amqpClient *messaging.Client
 	db         *sql.DB
 }
+
+const pingKey = "events.job-status-recorder.ping"
+const pongKey = "events.job-status-recorder.pong"
 
 // New returns a *JobStatusRecorder
 func New(cfg *viper.Viper) *JobStatusRecorder {
@@ -59,9 +64,33 @@ func (r *JobStatusRecorder) insert(state, invID, msg, host, ip string, sentOn in
 	return r.db.Exec(insertStr, invID, msg, state, ip, host, sentOn)
 }
 
+func (r *JobStatusRecorder) pingHandler(delivery amqp.Delivery) {
+	if err := delivery.Ack(false); err != nil {
+		logcabin.Error.Print(err)
+	}
+
+	logcabin.Info.Println("Received ping")
+
+	out, err := proto.Marshal(&ping.Pong{})
+	if err != nil {
+		logcabin.Error.Print(err)
+	}
+
+	logcabin.Info.Println("Sent pong")
+
+	if err = r.amqpClient.Publish(pongKey, out); err != nil {
+		logcabin.Error.Print(err)
+	}
+}
+
 func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	if err := delivery.Ack(false); err != nil {
 		logcabin.Error.Print(err)
+	}
+
+	if delivery.RoutingKey == pingKey {
+		r.pingHandler(delivery)
+		return
 	}
 
 	logcabin.Info.Println("Message received")
@@ -206,6 +235,10 @@ func main() {
 	}
 	defer app.amqpClient.Close()
 
+	if err = app.amqpClient.SetupPublishing(*amqpExchange); err != nil {
+		logcabin.Error.Fatal(err)
+	}
+
 	logcabin.Info.Println("Connecting to the database...")
 	app.db, err = sql.Open("postgres", *dbURI)
 	if err != nil {
@@ -220,6 +253,7 @@ func main() {
 	go app.amqpClient.Listen()
 
 	app.amqpClient.AddConsumer(*amqpExchange, *amqpType, "job_status_recorder", messaging.UpdatesKey, app.msg)
+
 	spinner := make(chan int)
 	go func() {
 		sock, err := net.Listen("tcp", "0.0.0.0:60000")
