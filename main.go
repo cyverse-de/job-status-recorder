@@ -151,8 +151,8 @@ func main() {
 		cfgPath      = flag.String("config", "", "The path to the config file")
 		dbURI        = flag.String("db", "", "The URI used to connect to the database")
 		amqpURI      = flag.String("amqp", "", "The URI used to connect to the amqp broker")
-		amqpExchange = flag.String("exchange", "", "The AMQP exchange to connect to")
-		amqpType     = flag.String("exchangetype", "", "The type of the AMQP exchange")
+		amqpExchange = flag.String("exchange", "de", "The AMQP exchange to connect to")
+		amqpType     = flag.String("exchangetype", "topic", "The type of the AMQP exchange")
 	)
 
 	flag.Parse()
