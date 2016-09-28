@@ -21,7 +21,6 @@ import (
 	"github.com/cyverse-de/logcabin"
 	"github.com/cyverse-de/messaging"
 	"github.com/cyverse-de/version"
-	"github.com/golang/protobuf/proto"
 	_ "github.com/lib/pq"
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
@@ -65,13 +64,9 @@ func (r *JobStatusRecorder) insert(state, invID, msg, host, ip string, sentOn in
 }
 
 func (r *JobStatusRecorder) pingHandler(delivery amqp.Delivery) {
-	if err := delivery.Ack(false); err != nil {
-		logcabin.Error.Print(err)
-	}
-
 	logcabin.Info.Println("Received ping")
 
-	out, err := proto.Marshal(&ping.Pong{})
+	out, err := json.Marshal(&ping.Pong{})
 	if err != nil {
 		logcabin.Error.Print(err)
 	}
