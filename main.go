@@ -148,7 +148,7 @@ func main() {
 		app          *JobStatusRecorder
 		cfg          *viper.Viper
 		showVersion  = flag.Bool("version", false, "Print the version information")
-		cfgPath      = flag.String("config", "", "The path to the config file")
+		cfgPath      = flag.String("config", "/etc/iplant/de/jobservices.yml", "The path to the config file")
 		dbURI        = flag.String("db", "", "The URI used to connect to the database")
 		amqpURI      = flag.String("amqp", "", "The URI used to connect to the amqp broker")
 		amqpExchange = flag.String("exchange", "de", "The AMQP exchange to connect to")
