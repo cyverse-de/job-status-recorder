@@ -78,6 +78,18 @@ func (r *JobStatusRecorder) pingHandler(delivery amqp.Delivery) {
 	}
 }
 
+func (r *JobStatusRecorder) eventsHandler(delivery amqp.Delivery) {
+	if err := delivery.Ack(false); err != nil {
+		logcabin.Error.Print(err)
+	}
+
+	logcabin.Info.Println("event message received")
+
+	if delivery.RoutingKey == pingKey {
+		r.pingHandler(delivery)
+	}
+}
+
 func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	if err := delivery.Ack(false); err != nil {
 		logcabin.Error.Print(err)
@@ -247,7 +259,21 @@ func main() {
 
 	go app.amqpClient.Listen()
 
-	app.amqpClient.AddConsumer(*amqpExchange, *amqpType, "job_status_recorder", messaging.UpdatesKey, app.msg)
+	app.amqpClient.AddConsumer(
+		*amqpExchange,
+		*amqpType,
+		"job_status_recorder",
+		messaging.UpdatesKey,
+		app.msg,
+	)
+
+	app.amqpClient.AddConsumer(
+		*amqpExchange,
+		*amqpType,
+		"job_status_recorder_events",
+		"events.job-status-recorder.*",
+		app.eventsHandler,
+	)
 
 	spinner := make(chan int)
 	go func() {
