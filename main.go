@@ -26,10 +26,20 @@ import (
 	"github.com/streadway/amqp"
 )
 
+// Messenger defines an interface for handling AMQP operations. This is the
+// subset of functionality needed by job-status-recorder.
+type Messenger interface {
+	AddConsumer(string, string, string, string, messaging.MessageHandler)
+	Close()
+	Listen()
+	Publish(string, []byte) error
+	SetupPublishing(string) error
+}
+
 // JobStatusRecorder contains the application state for job-status-recorder
 type JobStatusRecorder struct {
 	cfg        *viper.Viper
-	amqpClient *messaging.Client
+	amqpClient Messenger
 	db         *sql.DB
 }
 
