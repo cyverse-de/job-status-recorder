@@ -3,15 +3,17 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"net"
+	"errors"
+	"fmt"
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/cyverse-de/configurate"
 	"github.com/cyverse-de/messaging"
 	"github.com/cyverse-de/model"
+	"github.com/johnworth/events/ping"
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
 )
@@ -55,144 +57,279 @@ func inittests(t *testing.T) {
 	}
 }
 
-func TestInsert(t *testing.T) {
-	if !shouldrun() {
-		return
+func TestNew(t *testing.T) {
+	n := New(cfg)
+
+	if n == nil {
+		t.Error("New returned nil")
 	}
+
+	if n.cfg != cfg {
+		t.Error("Config objects did not match")
+	}
+}
+
+func TestInsert(t *testing.T) {
 	inittests(t)
 	app := New(cfg)
-	app.db = initdb(t)
-	defer app.db.Close()
-	n := time.Now().UnixNano() / int64(time.Millisecond)
-	actual, err := app.insert("RUNNING", "test-invocation-id", "test", "localhost", "127.0.0.1", n)
+	db, mock, err := sqlmock.New()
 	if err != nil {
-		t.Error(err)
+		t.Fatalf("an error '%s' was encountered when creating the mock database", err)
 	}
-	rowCount, err := actual.RowsAffected()
+	defer db.Close()
+	app.db = db
+
+	var lastInsertID int64
+	result := sqlmock.NewResult(lastInsertID, 1)
+	mock.ExpectExec("INSERT INTO job_status_updates").
+		WithArgs("invID", "message", "state", "host", "ip", 0).
+		WillReturnResult(result)
+
+	_, err = app.insert("state", "invID", "message", "ip", "host", 0)
 	if err != nil {
-		t.Error(err)
+		t.Errorf("error was not expected updating job_status_updates: %s", err)
 	}
-	rows, err := app.db.Query("select status, message, sent_from, sent_from_hostname, sent_on from job_status_updates where external_id = 'test-invocation-id'")
-	if err != nil {
-		t.Error(err)
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations inserting job_status_updates")
 	}
-	defer rows.Close()
-	var (
-		status, message, sentFromHostname string
-		sentOn                            int64
-		sentFrom                          string
-	)
-	for rows.Next() {
-		err = rows.Scan(&status, &message, &sentFrom, &sentFromHostname, &sentOn)
-		if err != nil {
-			t.Error(err)
-		}
-		if status != "RUNNING" {
-			t.Errorf("status was %s instead of RUNNING", status)
-		}
-		if message != "test" {
-			t.Errorf("message was %s instead of 'test'", message)
-		}
-		if sentFrom != "127.0.0.1" {
-			t.Errorf("sentFrom was %s instead of '127.0.0.1'", sentFrom)
-		}
-		if sentFromHostname != "localhost" {
-			t.Errorf("sentFromHostname was %s instead of 'localhost'", sentFromHostname)
-		}
-		if n != sentOn {
-			t.Errorf("sentOn was %d instead of %d", sentOn, n)
-		}
+}
+
+type MockConsumer struct {
+	exchange     string
+	exchangeType string
+	queue        string
+	key          string
+	handler      messaging.MessageHandler
+}
+
+type MockMessage struct {
+	key string
+	msg []byte
+}
+
+type MockMessenger struct {
+	consumers         []MockConsumer
+	publishedMessages []MockMessage
+	publishTo         []string
+	publishError      bool
+}
+
+func (m *MockMessenger) Close()  {}
+func (m *MockMessenger) Listen() {}
+
+func (m *MockMessenger) AddConsumer(exchange, exchangeType, queue, key string, handler messaging.MessageHandler) {
+	m.consumers = append(m.consumers, MockConsumer{
+		exchange:     exchange,
+		exchangeType: exchangeType,
+		queue:        queue,
+		key:          key,
+		handler:      handler,
+	})
+}
+
+func (m *MockMessenger) Publish(key string, msg []byte) error {
+	if m.publishError {
+		return errors.New("publish error")
 	}
-	err = rows.Err()
-	if err != nil {
-		t.Error(err)
+	m.publishedMessages = append(m.publishedMessages, MockMessage{key: key, msg: msg})
+	return nil
+}
+
+func (m *MockMessenger) SetupPublishing(exchange string) error {
+
+	m.publishTo = append(m.publishTo, exchange)
+	return nil
+}
+
+func TestPingHandler(t *testing.T) {
+	inittests(t)
+	app := New(cfg)
+	app.amqpClient = &MockMessenger{
+		publishedMessages: make([]MockMessage, 0),
 	}
-	if rowCount != 1 {
-		t.Errorf("RowsAffected() should have returned 1: %d", rowCount)
+	d := amqp.Delivery{}
+
+	app.pingHandler(d)
+	mm := app.amqpClient.(*MockMessenger)
+	numMessages := len(mm.publishedMessages)
+	if numMessages != 1 {
+		t.Errorf("number of published messages was not 1: %d", numMessages)
 	}
-	_, err = app.db.Exec("DELETE FROM job_status_updates")
-	if err != nil {
-		t.Error(err)
+	msg := mm.publishedMessages[0]
+	if msg.key != pongKey {
+		t.Errorf("routing key was %s instead of %s", msg.key, pongKey)
+	}
+	pong := &ping.Pong{}
+	if err := json.Unmarshal(msg.msg, pong); err != nil {
+		t.Errorf("error unmarshalling message: %s", err)
+	}
+
+	app.amqpClient = &MockMessenger{
+		publishedMessages: make([]MockMessage, 0),
+		publishError:      true,
+	}
+	app.pingHandler(d)
+	mm = app.amqpClient.(*MockMessenger)
+	numMessages = len(mm.publishedMessages)
+	if numMessages != 0 {
+		t.Errorf("number of published messages was not 0: %d", numMessages)
+	}
+}
+
+func TestEventsHandler(t *testing.T) {
+	inittests(t)
+	app := New(cfg)
+	app.amqpClient = &MockMessenger{
+		publishedMessages: make([]MockMessage, 0),
+	}
+	d := amqp.Delivery{
+		RoutingKey: pingKey,
+	}
+	app.eventsHandler(d)
+	mm := app.amqpClient.(*MockMessenger)
+	numMessages := len(mm.publishedMessages)
+	if numMessages != 1 {
+		t.Errorf("number of published messages was not 1: %d", numMessages)
+	}
+	msg := mm.publishedMessages[0]
+	if msg.key != pongKey {
+		t.Errorf("routing key was %s instead of %s", msg.key, pongKey)
+	}
+	pong := &ping.Pong{}
+	if err := json.Unmarshal(msg.msg, pong); err != nil {
+		t.Errorf("error unmarshalling message: %s", err)
+	}
+
+	d = amqp.Delivery{
+		RoutingKey: "not-a-key",
+	}
+	app.eventsHandler(d)
+	mm = app.amqpClient.(*MockMessenger)
+	numMessages = len(mm.publishedMessages)
+	if numMessages != 1 {
+		t.Errorf("number of published messages was not 1: %d", numMessages)
+	}
+}
+
+func TestMsgPing(t *testing.T) {
+	inittests(t)
+	app := New(cfg)
+	app.amqpClient = &MockMessenger{
+		publishedMessages: make([]MockMessage, 0),
+	}
+	d := amqp.Delivery{
+		RoutingKey: pingKey,
+	}
+	app.msg(d)
+	mm := app.amqpClient.(*MockMessenger)
+	numMessages := len(mm.publishedMessages)
+	if numMessages != 1 {
+		t.Errorf("number of published messages was not 1: %d", numMessages)
+	}
+	msg := mm.publishedMessages[0]
+	if msg.key != pongKey {
+		t.Errorf("routing key was %s instead of %s", msg.key, pongKey)
+	}
+	pong := &ping.Pong{}
+	if err := json.Unmarshal(msg.msg, pong); err != nil {
+		t.Errorf("error unmarshalling message: %s", err)
 	}
 }
 
 func TestMsg(t *testing.T) {
-	if !shouldrun() {
-		return
-	}
 	inittests(t)
-	app := New(cfg)
-	app.db = initdb(t)
-	defer app.db.Close()
-	me, err := os.Hostname()
-	if err != nil {
-		t.Error(err)
+	now := time.Now().Unix()
+	nowstr := fmt.Sprintf("%d", now)
+	testCases := []struct {
+		State        string
+		InvocationID string
+		Message      string
+		Sender       string
+		SenderAddr   string
+		SentOn       string
+	}{
+		{"State", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", nowstr},
+		{"", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", nowstr},
+		{"State", "", "Message", "127.0.0.1", "127.0.0.1", nowstr},
+		{"State", "InvocationID", "", "127.0.0.1", "127.0.0.1", nowstr},
+		{"State", "InvocationID", "Message", "", "0.0.0.0", nowstr},
+		{"State", "InvocationID", "Message", "localhost", "localhost", nowstr},
+		{"State", "InvocationID", "Message", "barf", "barf", nowstr},
+		{"State", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", ""},
 	}
-	j := &model.Job{InvocationID: "test-invocation-id"}
-	expected := &messaging.UpdateMessage{
-		Job:     j,
-		State:   "RUNNING",
-		Message: "this is a test",
-		SentOn:  strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10),
-		Sender:  me,
-	}
-	m, err := json.Marshal(expected)
-	if err != nil {
-		t.Error(err)
-	}
-	d := amqp.Delivery{
-		Body:      m,
-		Timestamp: time.Now(),
-	}
-	app.msg(d)
-	rows, err := app.db.Query("select status, message, sent_from, sent_from_hostname, sent_on from job_status_updates where external_id = 'test-invocation-id'")
-	if err != nil {
-		t.Error(err)
-	}
-	defer rows.Close()
-	var (
-		status, message, sentFromHostname string
-		sentOn                            int64
-		sentFrom                          string
-	)
-	for rows.Next() {
-		err = rows.Scan(&status, &message, &sentFrom, &sentFromHostname, &sentOn)
+
+	for _, tc := range testCases {
+		// Set up mock object for the database
+		app := New(cfg)
+		db, mock, err := sqlmock.New()
 		if err != nil {
-			t.Error(err)
+			t.Fatalf("an error '%s' was encountered when creating the mock database", err)
 		}
-		if status != string(expected.State) {
-			t.Errorf("status was %s instead of %s", status, expected.State)
+
+		app.db = db
+
+		// Set up mock object for the amqp stuff
+		app.amqpClient = &MockMessenger{
+			publishedMessages: make([]MockMessage, 0),
 		}
-		if message != expected.Message {
-			t.Errorf("message was %s instead of %s", message, expected.Message)
+
+		u := &messaging.UpdateMessage{
+			State:   messaging.JobState(tc.State),
+			Job:     model.New(cfg),
+			Message: tc.Message,
+			Sender:  tc.Sender,
+			SentOn:  tc.SentOn,
 		}
-		ips, err := net.LookupIP(expected.Sender)
+		u.Job.InvocationID = tc.InvocationID
+
+		body, err := json.Marshal(u)
 		if err != nil {
-			t.Error(err)
+			t.Errorf("error marshalling delivery body: %s", err)
 		}
-		var expectedSentFrom string
-		if len(ips) > 0 {
-			expectedSentFrom = ips[0].String()
-		} else {
-			t.Error("Couldn't get ip address")
+		d := amqp.Delivery{
+			RoutingKey: "not-ping",
+			Body:       body,
 		}
-		if sentFrom != expectedSentFrom {
-			t.Errorf("sentFrom was %s instead of %s", sentFrom, expectedSentFrom)
+
+		var lastInsertID int64
+		result := sqlmock.NewResult(lastInsertID, 1)
+		if tc.Sender == "" {
+			tc.Sender = "0.0.0.0"
 		}
-		if sentFromHostname != me {
-			t.Errorf("sentFromHostname was %s instead of %s", sentFromHostname, me)
+
+		n := now
+		if tc.SentOn == "" {
+			n = 0
 		}
-		actual := strconv.FormatInt(sentOn, 10)
-		if expected.SentOn != actual {
-			t.Errorf("sentOn was %s instead of %s", actual, expected.SentOn)
+
+		if tc.Message == "" {
+			tc.Message = "UNKNOWN"
 		}
-	}
-	err = rows.Err()
-	if err != nil {
-		t.Error(err)
-	}
-	_, err = app.db.Exec("DELETE FROM job_status_updates")
-	if err != nil {
-		t.Error(err)
+
+		if tc.Sender == "localhost" {
+			tc.Sender = "::1"
+		}
+
+		if tc.Sender == "barf" {
+			tc.Sender = ""
+		}
+
+		mock.ExpectExec("INSERT INTO job_status_updates").
+			WithArgs(tc.InvocationID, tc.Message, tc.State, tc.Sender, tc.SenderAddr, n).
+			WillReturnResult(result)
+
+		// make the call
+		app.msg(d)
+
+		if tc.State == "" {
+			continue
+		}
+
+		// check the results
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled expectations inserting job_status_updates")
+		}
+		db.Close()
 	}
 }
