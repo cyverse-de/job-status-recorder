@@ -11,9 +11,9 @@ import (
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/cyverse-de/configurate"
+	"github.com/cyverse-de/go-events/ping"
 	"github.com/cyverse-de/messaging"
 	"github.com/cyverse-de/model"
-	"github.com/johnworth/events/ping"
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
 )
