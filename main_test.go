@@ -252,7 +252,10 @@ func TestMsg(t *testing.T) {
 		{"State", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", nowstr},
 		{"", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", nowstr},
 		{"State", "", "Message", "127.0.0.1", "127.0.0.1", nowstr},
+		{"State", "InvocationID", "", "127.0.0.1", "127.0.0.1", nowstr},
 		{"State", "InvocationID", "Message", "", "0.0.0.0", nowstr},
+		{"State", "InvocationID", "Message", "localhost", "localhost", nowstr},
+		{"State", "InvocationID", "Message", "barf", "barf", nowstr},
 		{"State", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", ""},
 	}
 
@@ -294,10 +297,24 @@ func TestMsg(t *testing.T) {
 		if tc.Sender == "" {
 			tc.Sender = "0.0.0.0"
 		}
+
 		n := now
 		if tc.SentOn == "" {
 			n = 0
 		}
+
+		if tc.Message == "" {
+			tc.Message = "UNKNOWN"
+		}
+
+		if tc.Sender == "localhost" {
+			tc.Sender = "::1"
+		}
+
+		if tc.Sender == "barf" {
+			tc.Sender = ""
+		}
+
 		mock.ExpectExec("INSERT INTO job_status_updates").
 			WithArgs(tc.InvocationID, tc.Message, tc.State, tc.Sender, tc.SenderAddr, n).
 			WillReturnResult(result)
