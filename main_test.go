@@ -11,6 +11,7 @@ import (
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/cyverse-de/configurate"
+	"github.com/cyverse-de/go-events/jobevents"
 	"github.com/cyverse-de/go-events/ping"
 	"github.com/cyverse-de/messaging"
 	"github.com/cyverse-de/model"
@@ -212,6 +213,175 @@ func TestEventsHandler(t *testing.T) {
 	}
 }
 
+func TestJobEvent(t *testing.T) {
+	inittests(t)
+	testCases := []struct {
+		EventName   string
+		ServiceName string
+		Host        string
+		AppId       string
+		JobId       string
+		JobState    string
+		ExecutorId  string
+		User        string
+		Timestamp   int64
+		Message     string
+	}{
+		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
+		{"", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
+		{"event", "", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
+		{"event", "test-service", "", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
+		{"event", "test-service", "host", "", "job-id", "job-state", "executor-id", "user", 0, "message"},
+		{"event", "test-service", "host", "app-id", "", "job-state", "executor-id", "user", 0, "message"},
+		{"event", "test-service", "host", "app-id", "job-id", "", "executor-id", "user", 0, "message"},
+		{"event", "test-service", "host", "app-id", "job-id", "job-state", "", "user", 0, "message"},
+		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "", 0, "message"},
+		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 1, "message"},
+		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, ""},
+	}
+	for _, tc := range testCases {
+		job := model.New(cfg)
+		job.InvocationID = tc.JobId
+		job.AppID = tc.AppId
+		job.CondorID = tc.ExecutorId
+		job.Submitter = tc.User
+		update := &messaging.UpdateMessage{
+			State:   messaging.JobState(tc.JobState),
+			Job:     job,
+			Message: tc.Message,
+			Sender:  tc.Host,
+			SentOn:  string(tc.Timestamp),
+		}
+		e := jobEvent(tc.EventName, tc.ServiceName, tc.Host, tc.Timestamp, update)
+		if e.EventName != tc.EventName {
+			t.Errorf("event name was %s instead of %s", e.EventName, tc.EventName)
+		}
+		if e.ServiceName != tc.ServiceName {
+			t.Errorf("service name was %s instead of %s", e.ServiceName, tc.ServiceName)
+		}
+		if e.Host != tc.Host {
+			t.Errorf("host was %s instead of %s", e.Host, tc.Host)
+		}
+		if e.AppId != tc.AppId {
+			t.Errorf("app id was %s instead of %s", e.AppId, tc.AppId)
+		}
+		if e.JobId != tc.JobId {
+			t.Errorf("job id was %s instead of %s", e.JobId, tc.JobId)
+		}
+		if e.JobState != tc.JobState {
+			t.Errorf("state was %s instead of %s", e.JobState, tc.JobState)
+		}
+		if e.ExecutorId != tc.ExecutorId {
+			t.Errorf("executor id was %s instead of %s", e.ExecutorId, tc.ExecutorId)
+		}
+		if e.User != tc.User {
+			t.Errorf("user was %s instead of %s", e.User, tc.User)
+		}
+		if e.Timestamp != tc.Timestamp {
+			t.Errorf("timestamp was %d instead of %d", e.Timestamp, tc.Timestamp)
+		}
+		if e.Message != tc.Message {
+			t.Errorf("message was %s instead of %s", e.Message, tc.Message)
+		}
+	}
+}
+
+func TestSendJobEvent(t *testing.T) {
+	inittests(t)
+
+	testCases := []struct {
+		EventName   string
+		ServiceName string
+		Host        string
+		AppId       string
+		JobId       string
+		JobState    string
+		ExecutorId  string
+		User        string
+		Timestamp   int64
+		Message     string
+	}{
+		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
+		{"", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
+		{"event", "", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
+		{"event", "test-service", "", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
+		{"event", "test-service", "host", "", "job-id", "job-state", "executor-id", "user", 0, "message"},
+		{"event", "test-service", "host", "app-id", "", "job-state", "executor-id", "user", 0, "message"},
+		{"event", "test-service", "host", "app-id", "job-id", "", "executor-id", "user", 0, "message"},
+		{"event", "test-service", "host", "app-id", "job-id", "job-state", "", "user", 0, "message"},
+		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "", 0, "message"},
+		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 1, "message"},
+		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, ""},
+	}
+	for _, tc := range testCases {
+		app := New(cfg)
+		app.amqpClient = &MockMessenger{
+			publishedMessages: make([]MockMessage, 0),
+		}
+
+		job := model.New(cfg)
+		job.InvocationID = tc.JobId
+		job.AppID = tc.AppId
+		job.CondorID = tc.ExecutorId
+		job.Submitter = tc.User
+		update := &messaging.UpdateMessage{
+			State:   messaging.JobState(tc.JobState),
+			Job:     job,
+			Message: tc.Message,
+			Sender:  tc.Host,
+			SentOn:  string(tc.Timestamp),
+		}
+
+		e := jobEvent(tc.EventName, tc.ServiceName, tc.Host, tc.Timestamp, update)
+		if err := app.sendJobEvent(e); err != nil {
+			t.Fatalf("error sending job event: %s", err)
+		}
+		mm := app.amqpClient.(*MockMessenger)
+		numMessages := len(mm.publishedMessages)
+		if numMessages != 1 {
+			t.Errorf("number of published messages was not 1: %d", numMessages)
+		}
+		msg := mm.publishedMessages[0]
+		if msg.key != storeKey {
+			t.Errorf("routing key was %s instead of %s", msg.key, storeKey)
+		}
+		actual := &jobevents.JobEvent{}
+		if err := json.Unmarshal(msg.msg, actual); err != nil {
+			t.Fatalf("Error unmarshalling job event: %s", err)
+		}
+		if actual.EventName != tc.EventName {
+			t.Errorf("event name was %s instead of %s", actual.EventName, tc.EventName)
+		}
+		if actual.ServiceName != tc.ServiceName {
+			t.Errorf("service name was %s instead of %s", actual.ServiceName, tc.ServiceName)
+		}
+		if actual.Host != tc.Host {
+			t.Errorf("host was %s instead of %s", actual.Host, tc.Host)
+		}
+		if actual.AppId != tc.AppId {
+			t.Errorf("app id was %s instead of %s", actual.AppId, tc.AppId)
+		}
+		if actual.JobId != tc.JobId {
+			t.Errorf("job id was %s instead of %s", actual.JobId, tc.JobId)
+		}
+		if actual.JobState != tc.JobState {
+			t.Errorf("state was %s instead of %s", actual.JobState, tc.JobState)
+		}
+		if actual.ExecutorId != tc.ExecutorId {
+			t.Errorf("executor id was %s instead of %s", actual.ExecutorId, tc.ExecutorId)
+		}
+		if actual.User != tc.User {
+			t.Errorf("user was %s instead of %s", actual.User, tc.User)
+		}
+		if actual.Timestamp != tc.Timestamp {
+			t.Errorf("timestamp was %d instead of %d", actual.Timestamp, tc.Timestamp)
+		}
+		if actual.Message != tc.Message {
+			t.Errorf("message was %s instead of %s", actual.Message, tc.Message)
+		}
+	}
+}
+
 func TestMsgPing(t *testing.T) {
 	inittests(t)
 	app := New(cfg)
@@ -324,6 +494,16 @@ func TestMsg(t *testing.T) {
 
 		if tc.State == "" {
 			continue
+		}
+
+		mm := app.amqpClient.(*MockMessenger)
+		msg := mm.publishedMessages[0]
+		if msg.key != storeKey {
+			t.Errorf("routing key was %s instead of %s", msg.key, storeKey)
+		}
+		je := &jobevents.JobEvent{}
+		if err := json.Unmarshal(msg.msg, je); err != nil {
+			t.Errorf("error unmarshalling message: %s", err)
 		}
 
 		// check the results

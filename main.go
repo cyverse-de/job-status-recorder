@@ -15,8 +15,10 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/cyverse-de/configurate"
+	"github.com/cyverse-de/go-events/jobevents"
 	"github.com/cyverse-de/go-events/ping"
 	"github.com/cyverse-de/logcabin"
 	"github.com/cyverse-de/messaging"
@@ -45,6 +47,7 @@ type JobStatusRecorder struct {
 
 const pingKey = "events.job-status-recorder.ping"
 const pongKey = "events.job-status-recorder.pong"
+const storeKey = "events.job-status-recorder.record-status"
 
 // New returns a *JobStatusRecorder
 func New(cfg *viper.Viper) *JobStatusRecorder {
@@ -71,6 +74,38 @@ func (r *JobStatusRecorder) insert(state, invID, msg, host, ip string, sentOn in
 			$6
 		) RETURNING id`
 	return r.db.Exec(insertStr, invID, msg, state, ip, host, sentOn)
+}
+
+func jobEvent(event, service, host string, now int64, update *messaging.UpdateMessage) *jobevents.JobEvent {
+	return &jobevents.JobEvent{
+		EventName:   event,
+		ServiceName: service,
+		Host:        host,
+		AppId:       update.Job.AppID,
+		JobId:       update.Job.InvocationID,
+		JobState:    string(update.State),
+		ExecutorId:  update.Job.CondorID,
+		User:        update.Job.Submitter,
+		Timestamp:   now,
+		Message:     update.Message,
+	}
+}
+
+func hostname() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return h
+}
+
+func (r *JobStatusRecorder) sendJobEvent(e *jobevents.JobEvent) error {
+	out, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+
+	return r.amqpClient.Publish(storeKey, out)
 }
 
 func (r *JobStatusRecorder) pingHandler(delivery amqp.Delivery) {
@@ -176,6 +211,19 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 		sentOn,
 	)
 	if err != nil {
+		logcabin.Error.Print(err)
+		return
+	}
+
+	je := jobEvent(
+		"record-job-status",
+		"job-status-recorder",
+		hostname(),
+		time.Now().Unix(),
+		update,
+	)
+
+	if err = r.sendJobEvent(je); err != nil {
 		logcabin.Error.Print(err)
 		return
 	}
