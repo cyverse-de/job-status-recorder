@@ -108,6 +108,29 @@ func (r *JobStatusRecorder) sendJobEvent(e *jobevents.JobEvent) error {
 	return r.amqpClient.Publish(storeKey, out)
 }
 
+func (r *JobStatusRecorder) emitEvent(name, service string, update *messaging.UpdateMessage) {
+	je := jobEvent(
+		name,    //"record-job-status",
+		service, //"job-status-recorder",
+		hostname(),
+		time.Now().Unix(),
+		update,
+	)
+
+	if err := r.sendJobEvent(je); err != nil {
+		logcabin.Error.Print(err)
+	}
+}
+
+func (r *JobStatusRecorder) emitEventMessage(name, service, message string, update *messaging.UpdateMessage) {
+	um := &messaging.UpdateMessage{
+		Job:     update.Job,
+		State:   update.State,
+		Message: message,
+	}
+	r.emitEvent(name, service, um)
+}
+
 func (r *JobStatusRecorder) pingHandler(delivery amqp.Delivery) {
 	logcabin.Info.Println("Received ping")
 
@@ -211,22 +234,12 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 		sentOn,
 	)
 	if err != nil {
+		r.emitEventMessage("record-job-status-error", "job-status-recorder", err.Error(), update)
 		logcabin.Error.Print(err)
 		return
 	}
 
-	je := jobEvent(
-		"record-job-status",
-		"job-status-recorder",
-		hostname(),
-		time.Now().Unix(),
-		update,
-	)
-
-	if err = r.sendJobEvent(je); err != nil {
-		logcabin.Error.Print(err)
-		return
-	}
+	r.emitEvent("record-job-status", "job-status-recorder", update)
 
 	rowCount, err := result.RowsAffected()
 	if err != nil {

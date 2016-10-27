@@ -407,6 +407,134 @@ func TestMsgPing(t *testing.T) {
 	}
 }
 
+func TestEmitEvent(t *testing.T) {
+	inittests(t)
+	now := time.Now().Unix()
+	nowstr := fmt.Sprintf("%d", now)
+	testCases := []struct {
+		State        string
+		InvocationID string
+		Message      string
+		Sender       string
+		SenderAddr   string
+		SentOn       string
+	}{
+		{"State", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", nowstr},
+		{"", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", nowstr},
+		{"State", "", "Message", "127.0.0.1", "127.0.0.1", nowstr},
+		{"State", "InvocationID", "", "127.0.0.1", "127.0.0.1", nowstr},
+		{"State", "InvocationID", "Message", "", "0.0.0.0", nowstr},
+		{"State", "InvocationID", "Message", "localhost", "localhost", nowstr},
+		{"State", "InvocationID", "Message", "barf", "barf", nowstr},
+		{"State", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", ""},
+	}
+
+	for _, tc := range testCases {
+		// Set up mock object for the database
+		app := New(cfg)
+
+		// Set up mock object for the amqp stuff
+		app.amqpClient = &MockMessenger{
+			publishedMessages: make([]MockMessage, 0),
+		}
+
+		u := &messaging.UpdateMessage{
+			State:   messaging.JobState(tc.State),
+			Job:     model.New(cfg),
+			Message: tc.Message,
+			Sender:  tc.Sender,
+			SentOn:  tc.SentOn,
+		}
+		u.Job.InvocationID = tc.InvocationID
+
+		// make the call
+		app.emitEvent("event", "service", u)
+
+		mm := app.amqpClient.(*MockMessenger)
+		msg := mm.publishedMessages[0]
+		if msg.key != storeKey {
+			t.Errorf("routing key was %s instead of %s", msg.key, storeKey)
+		}
+		je := &jobevents.JobEvent{}
+		if err := json.Unmarshal(msg.msg, je); err != nil {
+			t.Errorf("error unmarshalling message: %s", err)
+		}
+		if je.Message != tc.Message {
+			t.Errorf("message was %s instead of %s", je.Message, tc.Message)
+		}
+		if je.EventName != "event" {
+			t.Errorf("event name was not 'event': %s", je.EventName)
+		}
+		if je.ServiceName != "service" {
+			t.Errorf("service name was not 'service': %s", je.ServiceName)
+		}
+	}
+}
+
+func TestEmitEventMessage(t *testing.T) {
+	inittests(t)
+	now := time.Now().Unix()
+	nowstr := fmt.Sprintf("%d", now)
+	testCases := []struct {
+		State        string
+		InvocationID string
+		Message      string
+		Sender       string
+		SenderAddr   string
+		SentOn       string
+	}{
+		{"State", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", nowstr},
+		{"", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", nowstr},
+		{"State", "", "Message", "127.0.0.1", "127.0.0.1", nowstr},
+		{"State", "InvocationID", "", "127.0.0.1", "127.0.0.1", nowstr},
+		{"State", "InvocationID", "Message", "", "0.0.0.0", nowstr},
+		{"State", "InvocationID", "Message", "localhost", "localhost", nowstr},
+		{"State", "InvocationID", "Message", "barf", "barf", nowstr},
+		{"State", "InvocationID", "Message", "127.0.0.1", "127.0.0.1", ""},
+	}
+
+	for _, tc := range testCases {
+		// Set up mock object for the database
+		app := New(cfg)
+
+		// Set up mock object for the amqp stuff
+		app.amqpClient = &MockMessenger{
+			publishedMessages: make([]MockMessage, 0),
+		}
+
+		u := &messaging.UpdateMessage{
+			State:   messaging.JobState(tc.State),
+			Job:     model.New(cfg),
+			Message: tc.Message,
+			Sender:  tc.Sender,
+			SentOn:  tc.SentOn,
+		}
+		u.Job.InvocationID = tc.InvocationID
+
+		// make the call
+		app.emitEventMessage("event", "service", "message", u)
+
+		mm := app.amqpClient.(*MockMessenger)
+		msg := mm.publishedMessages[0]
+		if msg.key != storeKey {
+			t.Errorf("routing key was %s instead of %s", msg.key, storeKey)
+		}
+		je := &jobevents.JobEvent{}
+		if err := json.Unmarshal(msg.msg, je); err != nil {
+			t.Errorf("error unmarshalling message: %s", err)
+		}
+		if je.Message != "message" {
+			t.Errorf("message was not 'message': %s", je.Message)
+		}
+		if je.EventName != "event" {
+			t.Errorf("event name was not 'event': %s", je.EventName)
+		}
+		if je.ServiceName != "service" {
+			t.Errorf("service name was not 'service': %s", je.ServiceName)
+		}
+	}
+}
+
 func TestMsg(t *testing.T) {
 	inittests(t)
 	now := time.Now().Unix()
