@@ -207,7 +207,8 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	} else {
 		ips, err := net.LookupIP(update.Sender)
 		if err != nil {
-			logcabin.Error.Print(err)
+			logcabin.Warning.Printf("Provided hostname %s did not resolve to an IP, setting from address to 0.0.0.0: %+v", update.Sender, err)
+			sentFromAddr = "0.0.0.0"
 		} else {
 			if len(ips) > 0 {
 				sentFromAddr = ips[0].String()
