@@ -15,8 +15,8 @@ import (
 	"github.com/cyverse-de/go-events/ping"
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
-	"gopkg.in/cyverse-de/messaging.v2"
-	"gopkg.in/cyverse-de/model.v1"
+	"gopkg.in/cyverse-de/messaging.v4"
+	"gopkg.in/cyverse-de/model.v3"
 )
 
 var (
@@ -119,7 +119,7 @@ type MockMessenger struct {
 func (m *MockMessenger) Close()  {}
 func (m *MockMessenger) Listen() {}
 
-func (m *MockMessenger) AddConsumer(exchange, exchangeType, queue, key string, handler messaging.MessageHandler) {
+func (m *MockMessenger) AddConsumer(exchange, exchangeType, queue, key string, handler messaging.MessageHandler, prefectCount int) {
 	m.consumers = append(m.consumers, MockConsumer{
 		exchange:     exchange,
 		exchangeType: exchangeType,
@@ -566,88 +566,86 @@ func TestMsg(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("%s-%s-%s-%s", tc.State, tc.InvocationID, tc.Message, tc.Sender), func(t *testing.T) {
-			// Set up mock object for the database
-			app := New(cfg)
-			db, mock, err := sqlmock.New()
-			if err != nil {
-				t.Fatalf("an error '%s' was encountered when creating the mock database", err)
-			}
+		// Set up mock object for the database
+		app := New(cfg)
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("an error '%s' was encountered when creating the mock database", err)
+		}
 
-			app.db = db
+		app.db = db
 
-			// Set up mock object for the amqp stuff
-			app.amqpClient = &MockMessenger{
-				publishedMessages: make([]MockMessage, 0),
-			}
+		// Set up mock object for the amqp stuff
+		app.amqpClient = &MockMessenger{
+			publishedMessages: make([]MockMessage, 0),
+		}
 
-			u := &messaging.UpdateMessage{
-				State:   messaging.JobState(tc.State),
-				Job:     model.New(cfg),
-				Message: tc.Message,
-				Sender:  tc.Sender,
-				SentOn:  tc.SentOn,
-			}
-			u.Job.InvocationID = tc.InvocationID
+		u := &messaging.UpdateMessage{
+			State:   messaging.JobState(tc.State),
+			Job:     model.New(cfg),
+			Message: tc.Message,
+			Sender:  tc.Sender,
+			SentOn:  tc.SentOn,
+		}
+		u.Job.InvocationID = tc.InvocationID
 
-			body, err := json.Marshal(u)
-			if err != nil {
-				t.Errorf("error marshalling delivery body: %s", err)
-			}
-			d := amqp.Delivery{
-				RoutingKey: "not-ping",
-				Body:       body,
-			}
+		body, err := json.Marshal(u)
+		if err != nil {
+			t.Errorf("error marshalling delivery body: %s", err)
+		}
+		d := amqp.Delivery{
+			RoutingKey: "not-ping",
+			Body:       body,
+		}
 
-			var lastInsertID int64
-			result := sqlmock.NewResult(lastInsertID, 1)
-			if tc.Sender == "" {
-				tc.Sender = "0.0.0.0"
-			}
+		var lastInsertID int64
+		result := sqlmock.NewResult(lastInsertID, 1)
+		if tc.Sender == "" {
+			tc.Sender = "0.0.0.0"
+		}
 
-			n := now
-			if tc.SentOn == "" {
-				n = 0
-			}
+		n := now
+		if tc.SentOn == "" {
+			n = 0
+		}
 
-			if tc.Message == "" {
-				tc.Message = "UNKNOWN"
-			}
+		if tc.Message == "" {
+			tc.Message = "UNKNOWN"
+		}
 
-			if tc.Sender == "localhost" {
-				tc.Sender = "127.0.0.1"
-			}
+		if tc.Sender == "localhost" {
+			tc.Sender = "127.0.0.1"
+		}
 
-			if tc.Sender == "barf" {
-				tc.Sender = "0.0.0.0"
-			}
+		if tc.Sender == "barf" {
+			tc.Sender = "0.0.0.0"
+		}
 
-			mock.ExpectExec("INSERT INTO job_status_updates").
-				WithArgs(tc.InvocationID, tc.Message, tc.State, tc.Sender, tc.SenderAddr, n).
-				WillReturnResult(result)
+		mock.ExpectExec("INSERT INTO job_status_updates.*").
+			WithArgs(tc.InvocationID, tc.Message, tc.State, tc.Sender, tc.SenderAddr, n).
+			WillReturnResult(result)
 
-			// make the call
-			app.msg(d)
+		// make the call
+		app.msg(d)
 
-			if tc.State == "" {
-				return
-			}
+		if tc.State == "" {
+			return
+		}
 
-			mm := app.amqpClient.(*MockMessenger)
-			msg := mm.publishedMessages[0]
-			if msg.key != storeKey {
-				t.Errorf("routing key was %s instead of %s", msg.key, storeKey)
-			}
-			je := &jobevents.JobEvent{}
-			if err := json.Unmarshal(msg.msg, je); err != nil {
-				t.Errorf("error unmarshalling message: %s", err)
-			}
+		mm := app.amqpClient.(*MockMessenger)
+		msg := mm.publishedMessages[0]
+		if msg.key != storeKey {
+			t.Errorf("routing key was %s instead of %s", msg.key, storeKey)
+		}
+		je := &jobevents.JobEvent{}
+		if err := json.Unmarshal(msg.msg, je); err != nil {
+			t.Errorf("error unmarshalling message: %s", err)
+		}
 
-			// check the results
-			if err := mock.ExpectationsWereMet(); err != nil {
-				t.Errorf("unfulfilled expectations inserting job_status_updates")
-			}
-			db.Close()
-		})
+		// check the results
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled expectations inserting job_status_updates: %s", err)
+		}
+		db.Close()
 	}
 }

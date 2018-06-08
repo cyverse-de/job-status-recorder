@@ -27,15 +27,11 @@
 
 [[constraint]]
   branch = "master"
-  name = "github.com/cyverse-de/go-events"
+  name = "github.com/streadway/amqp"
 
 [prune]
   go-tests = true
   unused-packages = true
-
-[[constraint]]
-  branch = "v4.1"
-  name = "gopkg.in/cyverse-de/messaging.v4"
 
 [[constraint]]
   name = "gopkg.in/cyverse-de/model.v3"

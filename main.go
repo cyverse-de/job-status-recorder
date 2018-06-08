@@ -25,13 +25,13 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
-	"gopkg.in/cyverse-de/messaging.v2"
+	"gopkg.in/cyverse-de/messaging.v4"
 )
 
 // Messenger defines an interface for handling AMQP operations. This is the
 // subset of functionality needed by job-status-recorder.
 type Messenger interface {
-	AddConsumer(string, string, string, string, messaging.MessageHandler)
+	AddConsumer(string, string, string, string, messaging.MessageHandler, int)
 	Close()
 	Listen()
 	Publish(string, []byte) error
@@ -247,6 +247,13 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 		logcabin.Error.Print(err)
 		return
 	}
+
+	lastInsertID, err := result.LastInsertId()
+	if err != nil {
+		logcabin.Error.Print(err)
+		return
+	}
+	logcabin.Info.Printf("last insert ID: %d\n", lastInsertID)
 	logcabin.Info.Printf("Inserted %d rows\n", rowCount)
 }
 
@@ -337,6 +344,7 @@ func main() {
 		"job_status_recorder",
 		messaging.UpdatesKey,
 		app.msg,
+		0,
 	)
 
 	app.amqpClient.AddConsumer(
@@ -345,6 +353,7 @@ func main() {
 		"job_status_recorder_events",
 		"events.job-status-recorder.*",
 		app.eventsHandler,
+		0,
 	)
 
 	spinner := make(chan int)
