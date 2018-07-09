@@ -134,6 +134,10 @@ func (r *JobStatusRecorder) emitEventMessage(name, service, message string, upda
 func (r *JobStatusRecorder) pingHandler(delivery amqp.Delivery) {
 	logcabin.Info.Println("Received ping")
 
+	if err := delivery.Ack(false); err != nil {
+		logcabin.Error.Print(err)
+	}
+
 	out, err := json.Marshal(&ping.Pong{})
 	if err != nil {
 		logcabin.Error.Print(err)
@@ -159,9 +163,7 @@ func (r *JobStatusRecorder) eventsHandler(delivery amqp.Delivery) {
 }
 
 func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
-	if err := delivery.Ack(false); err != nil {
-		logcabin.Error.Print(err)
-	}
+	redelivered := delivery.Redelivered
 
 	if delivery.RoutingKey == pingKey {
 		r.pingHandler(delivery)
@@ -175,6 +177,7 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	err := json.Unmarshal(delivery.Body, update)
 	if err != nil {
 		logcabin.Error.Print(err)
+		delivery.Reject(!redelivered)
 		return
 	}
 
@@ -237,6 +240,7 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	if err != nil {
 		r.emitEventMessage("record-job-status-error", "job-status-recorder", err.Error(), update)
 		logcabin.Error.Print(err)
+		delivery.Reject(!redelivered)
 		return
 	}
 
@@ -245,16 +249,14 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	rowCount, err := result.RowsAffected()
 	if err != nil {
 		logcabin.Error.Print(err)
+		delivery.Reject(!redelivered)
 		return
 	}
-
-	lastInsertID, err := result.LastInsertId()
-	if err != nil {
-		logcabin.Error.Print(err)
-		return
-	}
-	logcabin.Info.Printf("last insert ID: %d\n", lastInsertID)
 	logcabin.Info.Printf("Inserted %d rows\n", rowCount)
+
+	if err := delivery.Ack(false); err != nil {
+		logcabin.Error.Print(err)
+	}
 }
 
 func main() {
@@ -344,7 +346,7 @@ func main() {
 		"job_status_recorder",
 		messaging.UpdatesKey,
 		app.msg,
-		0,
+		100,
 	)
 
 	app.amqpClient.AddConsumer(
