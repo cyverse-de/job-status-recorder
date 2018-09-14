@@ -1,11 +1,9 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -20,33 +18,6 @@ import (
 var (
 	cfg *viper.Viper
 )
-
-func shouldrun() bool {
-	if os.Getenv("RUN_INTEGRATION_TESTS") != "" {
-		return true
-	}
-	return false
-}
-
-func rabbituri() string {
-	return "amqp://guest:guest@rabbit:5672/"
-}
-
-func dburi() string {
-	return "postgres://de:notprod@dedb:5432/de?sslmode=disable"
-}
-
-func initdb(t *testing.T) *sql.DB {
-	db, err := sql.Open("postgres", dburi())
-	if err != nil {
-		t.Error(err)
-	}
-	err = db.Ping()
-	if err != nil {
-		t.Error(err)
-	}
-	return db
-}
 
 func inittests(t *testing.T) {
 	var err error
@@ -139,81 +110,6 @@ func (m *MockMessenger) SetupPublishing(exchange string) error {
 
 	m.publishTo = append(m.publishTo, exchange)
 	return nil
-}
-
-func TestJobEvent(t *testing.T) {
-	inittests(t)
-	testCases := []struct {
-		EventName   string
-		ServiceName string
-		Host        string
-		AppId       string
-		JobId       string
-		JobState    string
-		ExecutorId  string
-		User        string
-		Timestamp   int64
-		Message     string
-	}{
-		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
-		{"", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
-		{"event", "", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
-		{"event", "test-service", "", "app-id", "job-id", "job-state", "executor-id", "user", 0, "message"},
-		{"event", "test-service", "host", "", "job-id", "job-state", "executor-id", "user", 0, "message"},
-		{"event", "test-service", "host", "app-id", "", "job-state", "executor-id", "user", 0, "message"},
-		{"event", "test-service", "host", "app-id", "job-id", "", "executor-id", "user", 0, "message"},
-		{"event", "test-service", "host", "app-id", "job-id", "job-state", "", "user", 0, "message"},
-		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "", 0, "message"},
-		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 1, "message"},
-		{"event", "test-service", "host", "app-id", "job-id", "job-state", "executor-id", "user", 0, ""},
-	}
-	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("%s-%s-%s-%s-%s-%s-%s-%s-%d-%s", tc.EventName, tc.ServiceName, tc.Host, tc.AppId, tc.JobId, tc.JobState, tc.ExecutorId, tc.User, tc.Timestamp, tc.Message), func(t *testing.T) {
-			job := model.New(cfg)
-			job.InvocationID = tc.JobId
-			job.AppID = tc.AppId
-			job.CondorID = tc.ExecutorId
-			job.Submitter = tc.User
-			update := &messaging.UpdateMessage{
-				State:   messaging.JobState(tc.JobState),
-				Job:     job,
-				Message: tc.Message,
-				Sender:  tc.Host,
-				SentOn:  string(tc.Timestamp),
-			}
-			e := jobEvent(tc.EventName, tc.ServiceName, tc.Host, tc.Timestamp, update)
-			if e.EventName != tc.EventName {
-				t.Errorf("event name was %s instead of %s", e.EventName, tc.EventName)
-			}
-			if e.ServiceName != tc.ServiceName {
-				t.Errorf("service name was %s instead of %s", e.ServiceName, tc.ServiceName)
-			}
-			if e.Host != tc.Host {
-				t.Errorf("host was %s instead of %s", e.Host, tc.Host)
-			}
-			if e.AppId != tc.AppId {
-				t.Errorf("app id was %s instead of %s", e.AppId, tc.AppId)
-			}
-			if e.JobId != tc.JobId {
-				t.Errorf("job id was %s instead of %s", e.JobId, tc.JobId)
-			}
-			if e.JobState != tc.JobState {
-				t.Errorf("state was %s instead of %s", e.JobState, tc.JobState)
-			}
-			if e.ExecutorId != tc.ExecutorId {
-				t.Errorf("executor id was %s instead of %s", e.ExecutorId, tc.ExecutorId)
-			}
-			if e.User != tc.User {
-				t.Errorf("user was %s instead of %s", e.User, tc.User)
-			}
-			if e.Timestamp != tc.Timestamp {
-				t.Errorf("timestamp was %d instead of %d", e.Timestamp, tc.Timestamp)
-			}
-			if e.Message != tc.Message {
-				t.Errorf("message was %s instead of %s", e.Message, tc.Message)
-			}
-		})
-	}
 }
 
 func TestMsg(t *testing.T) {

@@ -17,7 +17,6 @@ import (
 	"strconv"
 
 	"github.com/cyverse-de/configurate"
-	"github.com/cyverse-de/go-events/jobevents"
 	"github.com/cyverse-de/logcabin"
 	"github.com/cyverse-de/version"
 	_ "github.com/lib/pq"
@@ -70,29 +69,6 @@ func (r *JobStatusRecorder) insert(state, invID, msg, host, ip string, sentOn in
 	return r.db.Exec(insertStr, invID, msg, state, ip, host, sentOn)
 }
 
-func jobEvent(event, service, host string, now int64, update *messaging.UpdateMessage) *jobevents.JobEvent {
-	return &jobevents.JobEvent{
-		EventName:   event,
-		ServiceName: service,
-		Host:        host,
-		AppId:       update.Job.AppID,
-		JobId:       update.Job.InvocationID,
-		JobState:    string(update.State),
-		ExecutorId:  update.Job.CondorID,
-		User:        update.Job.Submitter,
-		Timestamp:   now,
-		Message:     update.Message,
-	}
-}
-
-func hostname() string {
-	h, err := os.Hostname()
-	if err != nil {
-		return ""
-	}
-	return h
-}
-
 func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	redelivered := delivery.Redelivered
 
@@ -134,7 +110,8 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	if parsedIP != nil {
 		sentFromAddr = update.Sender
 	} else {
-		ips, err := net.LookupIP(update.Sender)
+		var ips []net.IP
+		ips, err = net.LookupIP(update.Sender)
 		if err != nil {
 			logcabin.Warning.Printf("Provided hostname %s did not resolve to an IP, setting from address to 0.0.0.0: %+v", update.Sender, err)
 			sentFromAddr = "0.0.0.0"
