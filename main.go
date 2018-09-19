@@ -15,11 +15,9 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/cyverse-de/configurate"
 	"github.com/cyverse-de/go-events/jobevents"
-	"github.com/cyverse-de/go-events/ping"
 	"github.com/cyverse-de/logcabin"
 	"github.com/cyverse-de/version"
 	_ "github.com/lib/pq"
@@ -44,10 +42,6 @@ type JobStatusRecorder struct {
 	amqpClient Messenger
 	db         *sql.DB
 }
-
-const pingKey = "events.job-status-recorder.ping"
-const pongKey = "events.job-status-recorder.pong"
-const storeKey = "events.job-status-recorder.record-status"
 
 // New returns a *JobStatusRecorder
 func New(cfg *viper.Viper) *JobStatusRecorder {
@@ -99,76 +93,8 @@ func hostname() string {
 	return h
 }
 
-func (r *JobStatusRecorder) sendJobEvent(e *jobevents.JobEvent) error {
-	out, err := json.Marshal(e)
-	if err != nil {
-		return err
-	}
-
-	return r.amqpClient.Publish(storeKey, out)
-}
-
-func (r *JobStatusRecorder) emitEvent(name, service string, update *messaging.UpdateMessage) {
-	je := jobEvent(
-		name,    //"record-job-status",
-		service, //"job-status-recorder",
-		hostname(),
-		time.Now().Unix(),
-		update,
-	)
-
-	if err := r.sendJobEvent(je); err != nil {
-		logcabin.Error.Print(err)
-	}
-}
-
-func (r *JobStatusRecorder) emitEventMessage(name, service, message string, update *messaging.UpdateMessage) {
-	um := &messaging.UpdateMessage{
-		Job:     update.Job,
-		State:   update.State,
-		Message: message,
-	}
-	r.emitEvent(name, service, um)
-}
-
-func (r *JobStatusRecorder) pingHandler(delivery amqp.Delivery) {
-	logcabin.Info.Println("Received ping")
-
-	if err := delivery.Ack(false); err != nil {
-		logcabin.Error.Print(err)
-	}
-
-	out, err := json.Marshal(&ping.Pong{})
-	if err != nil {
-		logcabin.Error.Print(err)
-	}
-
-	logcabin.Info.Println("Sent pong")
-
-	if err = r.amqpClient.Publish(pongKey, out); err != nil {
-		logcabin.Error.Print(err)
-	}
-}
-
-func (r *JobStatusRecorder) eventsHandler(delivery amqp.Delivery) {
-	if err := delivery.Ack(false); err != nil {
-		logcabin.Error.Print(err)
-	}
-
-	logcabin.Info.Println("event message received")
-
-	if delivery.RoutingKey == pingKey {
-		r.pingHandler(delivery)
-	}
-}
-
 func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	redelivered := delivery.Redelivered
-
-	if delivery.RoutingKey == pingKey {
-		r.pingHandler(delivery)
-		return
-	}
 
 	logcabin.Info.Println("Message received")
 
@@ -238,13 +164,10 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 		sentOn,
 	)
 	if err != nil {
-		r.emitEventMessage("record-job-status-error", "job-status-recorder", err.Error(), update)
 		logcabin.Error.Print(err)
 		delivery.Reject(!redelivered)
 		return
 	}
-
-	r.emitEvent("record-job-status", "job-status-recorder", update)
 
 	rowCount, err := result.RowsAffected()
 	if err != nil {
@@ -347,15 +270,6 @@ func main() {
 		messaging.UpdatesKey,
 		app.msg,
 		100,
-	)
-
-	app.amqpClient.AddConsumer(
-		*amqpExchange,
-		*amqpType,
-		"job_status_recorder_events",
-		"events.job-status-recorder.*",
-		app.eventsHandler,
-		0,
 	)
 
 	spinner := make(chan int)
