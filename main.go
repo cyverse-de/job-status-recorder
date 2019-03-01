@@ -23,7 +23,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
-	"gopkg.in/cyverse-de/messaging.v4"
+	"gopkg.in/cyverse-de/messaging.v6"
 )
 
 // Messenger defines an interface for handling AMQP operations. This is the

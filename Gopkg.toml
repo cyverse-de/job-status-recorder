@@ -32,11 +32,3 @@
 [prune]
   go-tests = true
   unused-packages = true
-
-[[constraint]]
-  branch = "v4.1"
-  name = "gopkg.in/cyverse-de/messaging.v4"
-
-[[constraint]]
-  name = "gopkg.in/cyverse-de/model.v3"
-  version = "3.0.0"
