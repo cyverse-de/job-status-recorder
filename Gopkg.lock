@@ -12,12 +12,6 @@
   revision = "4b85e07b4aea9377eebe7ce7ee9efff574751ab4"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/cyverse-de/go-events"
-  packages = ["jobevents"]
-  revision = "71c6103a00b48ed87c4848530b5244b051b5e75c"
-
-[[projects]]
   name = "github.com/cyverse-de/logcabin"
   packages = ["."]
   revision = "7a3aa512933277796b9f0fd55cdd0b67d05bfc3c"
@@ -37,11 +31,6 @@
   name = "github.com/fsnotify/fsnotify"
   packages = ["."]
   revision = "f12c6236fe7b5cf6bcf30e5935d08cb079d78334"
-
-[[projects]]
-  name = "github.com/golang/protobuf"
-  packages = ["proto"]
-  revision = "87c000235d3d852c1628dc9490cd21ab36a7d69f"
 
 [[projects]]
   name = "github.com/hashicorp/hcl"
@@ -187,6 +176,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "a4ca8c05ef4313f840dc38f738cbbdc15466615c1eadfe50f61c21f5f45d8210"
+  inputs-digest = "97bbfd5bdc84f1e770d4299ba8326dccbdc744b592e1c4ec9a74fd2d5027b456"
   solver-name = "gps-cdcl"
   solver-version = 1
