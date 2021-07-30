@@ -10,5 +10,5 @@ build:
   tagPolicy:
     gitCommit: {}
   artifacts:
-  - image: discoenv/job-status-recorder
+  - image: harbor.cyverse.org/de/job-status-recorder
   local: {}

@@ -41,7 +41,7 @@ spec:
                 path: jobservices.yml
       containers:
       - name: job-status-recorder
-        image: discoenv/job-status-recorder
+        image: harbor.cyverse.org/de/job-status-recorder
         volumeMounts:
           - name: localtime
             mountPath: /etc/localtime
