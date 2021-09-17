@@ -69,14 +69,6 @@ func (r *JobStatusRecorder) insert(state, invID, msg, host, ip string, sentOn in
 	return r.db.Exec(insertStr, invID, msg, state, ip, host, sentOn)
 }
 
-func hostname() string {
-	h, err := os.Hostname()
-	if err != nil {
-		return ""
-	}
-	return h
-}
-
 func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	redelivered := delivery.Redelivered
 
@@ -87,7 +79,10 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	err := json.Unmarshal(delivery.Body, update)
 	if err != nil {
 		logcabin.Error.Print(err)
-		delivery.Reject(!redelivered)
+		err = delivery.Reject(!redelivered)
+		if err != nil {
+			logcabin.Error.Print(err)
+		}
 		return
 	}
 
@@ -149,14 +144,20 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	)
 	if err != nil {
 		logcabin.Error.Print(err)
-		delivery.Reject(!redelivered)
+		err = delivery.Reject(!redelivered)
+		if err != nil {
+			logcabin.Error.Print(err)
+		}
 		return
 	}
 
 	rowCount, err := result.RowsAffected()
 	if err != nil {
 		logcabin.Error.Print(err)
-		delivery.Reject(!redelivered)
+		err = delivery.Reject(!redelivered)
+		if err != nil {
+			logcabin.Error.Print(err)
+		}
 		return
 	}
 	logcabin.Info.Printf("Inserted %d rows\n", rowCount)
@@ -262,7 +263,10 @@ func main() {
 		if err != nil {
 			logcabin.Error.Fatal(err)
 		}
-		http.Serve(sock, nil)
+		err = http.Serve(sock, nil)
+		if err != nil {
+			logcabin.Error.Fatal(err)
+		}
 	}()
 	<-spinner
 }
