@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/cyverse-de/configurate"
 	"github.com/cyverse-de/version"
@@ -72,44 +73,46 @@ func (r *JobStatusRecorder) insert(state, invID, msg, host, ip string, sentOn in
 }
 
 func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
-	redelivered := delivery.Redelivered
+	start := time.Now()
 
-	log.Info("Message received")
+	redelivered := delivery.Redelivered
+	l := log.WithFields(logrus.Fields{"redelivered": redelivered})
 
 	update := &messaging.UpdateMessage{}
 
 	err := json.Unmarshal(delivery.Body, update)
 	if err != nil {
-		log.Error(err)
+		l.Error(err)
 		err = delivery.Reject(!redelivered)
 		if err != nil {
-			log.Error(err)
+			l.Error(err)
 		}
 		return
 	}
 
 	if update.State == "" {
-		log.Warn("State was unset, dropping update")
+		l.Warn("State was unset, dropping update")
 		return
 	}
-	log.Infof("State is %s\n", update.State)
+	l = l.WithFields(logrus.Fields{"state": update.State})
 
 	if update.Job.InvocationID == "" {
-		log.Warn("InvocationID was unset, dropping update")
+		l.Warn("InvocationID was unset, dropping update")
 	}
-	log.Infof("InvocationID is %s\n", update.Job.InvocationID)
+	l = l.WithFields(logrus.Fields{"invocationID": update.Job.InvocationID})
 
 	if update.Message == "" {
-		log.Warn("Message set to empty string, setting to UNKNOWN")
+		l.Warn("Message set to empty string, setting to UNKNOWN")
 		update.Message = "UNKNOWN"
 	}
-	log.Infof("Message is: %s", update.Message)
+	l = l.WithFields(logrus.Fields{"updateMessage": update.Message})
 
 	var sentFromAddr string
 	if update.Sender == "" {
-		log.Warn("Unknown sender, setting from address to 0.0.0.0")
+		l.Warn("Unknown sender, setting from address to 0.0.0.0")
 		update.Sender = "0.0.0.0"
 	}
+	l = l.WithFields(logrus.Fields{"sender": update.Sender})
 
 	parsedIP := net.ParseIP(update.Sender)
 	if parsedIP != nil {
@@ -117,7 +120,7 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	} else {
 		ips, err := net.LookupIP(update.Sender)
 		if err != nil {
-			log.Warnf("Provided hostname %s did not resolve to an IP, setting from address to 0.0.0.0: %+v", update.Sender, err)
+			l.Warnf("Provided hostname %s did not resolve to an IP, setting from address to 0.0.0.0: %+v", update.Sender, err)
 			sentFromAddr = "0.0.0.0"
 		} else {
 			if len(ips) > 0 {
@@ -125,16 +128,13 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 			}
 		}
 	}
+	l = l.WithFields(logrus.Fields{"sentFromAddr": sentFromAddr, "sentOn": update.SentOn})
 
-	log.Infof("Sent from: %s", sentFromAddr)
-
-	log.Infof("Sent On, unparsed: %s", update.SentOn)
 	sentOn, err := strconv.ParseInt(update.SentOn, 10, 64)
 	if err != nil {
-		log.Errorf("Error parsing SentOn field, setting field to 0: %s", err)
+		l.Errorf("Error parsing SentOn field, setting field to 0: %s", err)
 		sentOn = 0
 	}
-	log.Infof("Sent On: %d", sentOn)
 
 	result, err := r.insert(
 		string(update.State),
@@ -145,27 +145,28 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 		sentOn,
 	)
 	if err != nil {
-		log.Error(err)
+		l.Error(err)
 		err = delivery.Reject(!redelivered)
 		if err != nil {
-			log.Error(err)
+			l.Error(err)
 		}
 		return
 	}
 
 	rowCount, err := result.RowsAffected()
 	if err != nil {
-		log.Error(err)
+		l.Error(err)
 		err = delivery.Reject(!redelivered)
 		if err != nil {
-			log.Error(err)
+			l.Error(err)
 		}
 		return
 	}
-	log.Infof("Inserted %d rows\n", rowCount)
+	elapsed := time.Since(start)
+	l.Infof("Processed message and inserted %d rows in %s", rowCount, elapsed)
 
 	if err := delivery.Ack(false); err != nil {
-		log.Error(err)
+		l.Error(err)
 	}
 }
 
