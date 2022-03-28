@@ -8,7 +8,7 @@ require (
 	github.com/cyverse-de/messaging/v9 v9.1.1
 	github.com/cyverse-de/model v0.0.0-20211027151045-62de96618208
 	github.com/cyverse-de/version v0.0.0-20160721234331-5119d6500655
-	github.com/lib/pq v0.0.0-20160806144029-80f8150043c8
+	github.com/lib/pq v1.10.4
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/viper v1.4.0
 	github.com/streadway/amqp v1.0.1-0.20200716223359-e6b33f460591

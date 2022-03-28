@@ -9,7 +9,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"encoding/json"
 	_ "expvar"
 	"flag"
@@ -301,7 +300,7 @@ func main() {
 	app.db, err = otelsql.Open("postgres", *dbURI,
 		otelsql.WithAttributes(semconv.DBSystemPostgreSQL),
 	)
-	if err != nil && err != driver.ErrSkip {
+	if err != nil {
 		log.Fatal(err)
 	}
 	err = app.db.Ping()
