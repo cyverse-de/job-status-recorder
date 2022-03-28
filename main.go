@@ -300,7 +300,7 @@ func main() {
 	app.db, err = otelsql.Open("postgres", *dbURI,
 		otelsql.WithAttributes(semconv.DBSystemPostgreSQL),
 	)
-	if err != nil {
+	if err != nil && err != sql.ErrSkip {
 		log.Fatal(err)
 	}
 	err = app.db.Ping()
