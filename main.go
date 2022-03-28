@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	_ "expvar"
@@ -18,12 +19,21 @@ import (
 	"time"
 
 	"github.com/cyverse-de/configurate"
+	"github.com/cyverse-de/messaging/v9"
 	"github.com/cyverse-de/version"
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
-	"gopkg.in/cyverse-de/messaging.v6"
+
+	"github.com/uptrace/opentelemetry-go-extra/otelsql"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	tracesdk "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
 )
 
 var log = logrus.WithFields(logrus.Fields{"service": "job-status-recorder"})
@@ -52,7 +62,7 @@ func New(cfg *viper.Viper) *JobStatusRecorder {
 	}
 }
 
-func (r *JobStatusRecorder) insert(state, invID, msg, host, ip string, sentOn int64) (sql.Result, error) {
+func (r *JobStatusRecorder) insert(ctx context.Context, state, invID, msg, host, ip string, sentOn int64) (sql.Result, error) {
 	insertStr := `
 		INSERT INTO job_status_updates (
 			external_id,
@@ -69,10 +79,10 @@ func (r *JobStatusRecorder) insert(state, invID, msg, host, ip string, sentOn in
 			$5,
 			$6
 		) RETURNING id`
-	return r.db.Exec(insertStr, invID, msg, state, ip, host, sentOn)
+	return r.db.ExecContext(ctx, insertStr, invID, msg, state, ip, host, sentOn)
 }
 
-func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
+func (r *JobStatusRecorder) msg(ctx context.Context, delivery amqp.Delivery) {
 	start := time.Now()
 
 	redelivered := delivery.Redelivered
@@ -137,6 +147,7 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	}
 
 	result, err := r.insert(
+		ctx,
 		string(update.State),
 		update.Job.InvocationID,
 		update.Message,
@@ -170,6 +181,24 @@ func (r *JobStatusRecorder) msg(delivery amqp.Delivery) {
 	}
 }
 
+func jaegerTracerProvider(url string) (*tracesdk.TracerProvider, error) {
+	// Create the Jaeger exporter
+	exp, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(url)))
+	if err != nil {
+		return nil, err
+	}
+
+	tp := tracesdk.NewTracerProvider(
+		tracesdk.WithBatcher(exp),
+		tracesdk.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceNameKey.String("job-status-recorder"),
+		)),
+	)
+
+	return tp, nil
+}
+
 func main() {
 	var (
 		err          error
@@ -181,7 +210,38 @@ func main() {
 		amqpURI      = flag.String("amqp", "", "The URI used to connect to the amqp broker")
 		amqpExchange = flag.String("exchange", "de", "The AMQP exchange to connect to")
 		amqpType     = flag.String("exchangetype", "topic", "The type of the AMQP exchange")
+
+		tracerProvider *tracesdk.TracerProvider
 	)
+
+	otelTracesExporter := os.Getenv("OTEL_TRACES_EXPORTER")
+	if otelTracesExporter == "jaeger" {
+		jaegerEndpoint := os.Getenv("OTEL_EXPORTER_JAEGER_ENDPOINT")
+		if jaegerEndpoint == "" {
+			log.Warn("Jaeger set as OpenTelemetry trace exporter, but no Jaeger endpoint configured.")
+		} else {
+			tp, err := jaegerTracerProvider(jaegerEndpoint)
+			if err != nil {
+				log.Fatal(err)
+			}
+			tracerProvider = tp
+			otel.SetTracerProvider(tp)
+			otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+		}
+	}
+
+	if tracerProvider != nil {
+		tracerCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		defer func(tracerContext context.Context) {
+			ctx, cancel := context.WithTimeout(tracerContext, time.Second*5)
+			defer cancel()
+			if err := tracerProvider.Shutdown(ctx); err != nil {
+				log.Fatal(err)
+			}
+		}(tracerCtx)
+	}
 
 	flag.Parse()
 
@@ -237,7 +297,9 @@ func main() {
 	}
 
 	log.Info("Connecting to the database...")
-	app.db, err = sql.Open("postgres", *dbURI)
+	app.db, err = otelsql.Open("postgres", *dbURI,
+		otelsql.WithAttributes(semconv.DBSystemPostgreSQL),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
