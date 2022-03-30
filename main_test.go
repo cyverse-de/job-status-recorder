@@ -13,7 +13,7 @@ import (
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/cyverse-de/configurate"
 	"github.com/cyverse-de/messaging/v9"
-	"github.com/cyverse-de/model"
+	"github.com/cyverse-de/model/v6"
 	"github.com/spf13/viper"
 	"github.com/streadway/amqp"
 )
