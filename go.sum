@@ -101,6 +101,8 @@ github.com/cyverse-de/configurate v0.0.0-20190318152107-8f767cb828d9 h1:GXDamvpo
 github.com/cyverse-de/configurate v0.0.0-20190318152107-8f767cb828d9/go.mod h1:QMZ4G8bX5f0vKiH9+/2JqV687mN1byJ18tjZwIJIagI=
 github.com/cyverse-de/messaging/v9 v9.1.3 h1:bfLi4ye9h4hgqIA8KhK2rLfqI62PqBHANMMVyoTKuHA=
 github.com/cyverse-de/messaging/v9 v9.1.3/go.mod h1:bGZRCqilJTPBmWrgsyuupi3KRgkjQNs8yYNxZWZh8DI=
+github.com/cyverse-de/messaging/v9 v9.1.4 h1:DRMqWWT6nAGAnCk2Ajcikm13CJimttgQ5ClrvEA5UNw=
+github.com/cyverse-de/messaging/v9 v9.1.4/go.mod h1:bGZRCqilJTPBmWrgsyuupi3KRgkjQNs8yYNxZWZh8DI=
 github.com/cyverse-de/model/v6 v6.0.1 h1:6c0Tkl0hIbaJj7paI872QAPyvX9bhZNH93o37zDZG0s=
 github.com/cyverse-de/model/v6 v6.0.1/go.mod h1:u9qbFn7B6/1HlwwuyVriIxfGy2hh5t9vFB4+k61X7YE=
 github.com/cyverse-de/version v0.0.0-20160721234331-5119d6500655 h1:FOEB5zuAJqQFKT4RV4XGrOOLtNIT5WCwSNGpiV+kZVo=

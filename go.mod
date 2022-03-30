@@ -5,7 +5,7 @@ go 1.16
 require (
 	github.com/DATA-DOG/go-sqlmock v1.1.4-0.20160722192640-05f39e9110c0
 	github.com/cyverse-de/configurate v0.0.0-20190318152107-8f767cb828d9
-	github.com/cyverse-de/messaging/v9 v9.1.3
+	github.com/cyverse-de/messaging/v9 v9.1.4
 	github.com/cyverse-de/model/v6 v6.0.1
 	github.com/cyverse-de/version v0.0.0-20160721234331-5119d6500655
 	github.com/lib/pq v1.10.4
