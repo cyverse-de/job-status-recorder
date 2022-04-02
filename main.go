@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/cyverse-de/configurate"
+	"github.com/cyverse-de/go-mod/otelutils"
 	"github.com/cyverse-de/messaging/v9"
 	"github.com/cyverse-de/version"
 	_ "github.com/lib/pq"
@@ -28,15 +29,12 @@ import (
 
 	"github.com/uptrace/opentelemetry-go-extra/otelsql"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/jaeger"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/sdk/resource"
-	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
 )
 
-var log = logrus.WithFields(logrus.Fields{"service": "job-status-recorder"})
+const serviceName = "job-status-recorder"
+
+var log = logrus.WithFields(logrus.Fields{"service": serviceName})
 
 // Messenger defines an interface for handling AMQP operations. This is the
 // subset of functionality needed by job-status-recorder.
@@ -181,24 +179,6 @@ func (r *JobStatusRecorder) msg(ctx context.Context, delivery amqp.Delivery) {
 	}
 }
 
-func jaegerTracerProvider(url string) (*tracesdk.TracerProvider, error) {
-	// Create the Jaeger exporter
-	exp, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(url)))
-	if err != nil {
-		return nil, err
-	}
-
-	tp := tracesdk.NewTracerProvider(
-		tracesdk.WithBatcher(exp),
-		tracesdk.WithResource(resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceNameKey.String("job-status-recorder"),
-		)),
-	)
-
-	return tp, nil
-}
-
 func main() {
 	var (
 		err          error
@@ -210,38 +190,12 @@ func main() {
 		amqpURI      = flag.String("amqp", "", "The URI used to connect to the amqp broker")
 		amqpExchange = flag.String("exchange", "de", "The AMQP exchange to connect to")
 		amqpType     = flag.String("exchangetype", "topic", "The type of the AMQP exchange")
-
-		tracerProvider *tracesdk.TracerProvider
 	)
 
-	otelTracesExporter := os.Getenv("OTEL_TRACES_EXPORTER")
-	if otelTracesExporter == "jaeger" {
-		jaegerEndpoint := os.Getenv("OTEL_EXPORTER_JAEGER_ENDPOINT")
-		if jaegerEndpoint == "" {
-			log.Warn("Jaeger set as OpenTelemetry trace exporter, but no Jaeger endpoint configured.")
-		} else {
-			tp, err := jaegerTracerProvider(jaegerEndpoint)
-			if err != nil {
-				log.Fatal(err)
-			}
-			tracerProvider = tp
-			otel.SetTracerProvider(tp)
-			otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
-		}
-	}
-
-	if tracerProvider != nil {
-		tracerCtx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		defer func(tracerContext context.Context) {
-			ctx, cancel := context.WithTimeout(tracerContext, time.Second*5)
-			defer cancel()
-			if err := tracerProvider.Shutdown(ctx); err != nil {
-				log.Fatal(err)
-			}
-		}(tracerCtx)
-	}
+	var tracerCtx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	shutdown := otelutils.TracerProviderFromEnv(tracerCtx, serviceName, func(e error) { log.Fatal(e) })
+	defer shutdown()
 
 	flag.Parse()
 
