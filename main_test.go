@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -85,7 +86,7 @@ func TestInsert(t *testing.T) {
 		WithArgs("invID", "message", "state", "host", "ip", 0).
 		WillReturnResult(result)
 
-	_, err = app.insert("state", "invID", "message", "ip", "host", 0)
+	_, err = app.insert(context.Background(), "state", "invID", "message", "ip", "host", 0)
 	if err != nil {
 		t.Errorf("error was not expected updating job_status_updates: %s", err)
 	}
@@ -225,7 +226,7 @@ func TestMsg(t *testing.T) {
 			WillReturnResult(result)
 
 		// make the call
-		app.msg(d)
+		app.msg(context.Background(), d)
 
 		if tc.State == "" {
 			return
